@@ -277,7 +277,7 @@ class Enum(object):
     #ramp_down_sp={'read_only': False, 'property_type': Ev3IntType},
     #ramp_up_sp={'read_only': False, 'property_type': Ev3IntType},
     speed={'read_only': True, 'property_type': Ev3IntType},
-    speed_regulation={'read_only': False, 'property_type': Ev3BoolType},
+    speed_regulation={'read_only': False, 'property_type': Ev3StringType},
     speed_sp={'read_only': False, 'property_type': Ev3IntType},
     state={'read_only': True, 'property_type': Ev3StringType},
     stop_command={'read_only': False, 'property_type': Ev3StringType},
@@ -293,6 +293,7 @@ class Motor(Ev3Dev):
     def __init__(self, port='', _type=''):
         Ev3Dev.__init__(self)
         motor_existing = False
+        self.speed_regulation='off'
         searchpath = '/sys/class/tacho-motor/motor*/'
         if (len(glob.glob(searchpath + "*")) == 0):
             searchpath = '/sys/class/tacho-motor/tacho-motor*/'
@@ -328,7 +329,7 @@ class Motor(Ev3Dev):
     def get_position(self):
         return self.position
 
-    def set_attrs(self, **kwargs):
+    def set_attrs(self, kwargs):
         for k in kwargs:
             v = kwargs[k]
             if (v != None):
@@ -344,8 +345,8 @@ class Motor(Ev3Dev):
 
         self.run_mode = 'forever'
         self.set_attrs(kwargs)
-        if self.regulation_mode:
-            self.pulses_per_second_sp = speed_sp
+        if self.speed_regulation == 'on':
+            self.speed_sp = speed_sp
         else:
             self.duty_cycle_sp = speed_sp
         self.run = True
@@ -358,44 +359,41 @@ class Motor(Ev3Dev):
         if self.run_mode != 'forever':
             self.run_mode = 'forever'
         self.set_attrs(kwargs)
-        if self.regulation_mode:
-            self.pulses_per_second_sp = speed_sp
+        if self.speed_regulation == 'on':
+            self.speed_sp = speed_sp
         else:
             self.duty_cycle_sp = speed_sp
         self.run = True
         self.command = 'run-forever'
         pass
 
-    def run_to_abs_pos(self, position_sp, **kwargs):
-        self.reset()
-        self.run_mode = 'position'
-
-        self.set_attrs(kwargs)
-        self.position_sp = position_sp
+    def run_to_abs_pos(self, position_sp):
+        if position_sp is not None:
+            self.position_sp = position_sp
         self.run = True
+        stop_command = self.stop_command
+        self.stop_command = 'hold' # made for run to position
         self.command = 'run-to-abs-pos'
+        self.stop_command = stop_command
 
-    def run_to_rel_pos(self, position_sp=None, **kwargs):
+    def run_to_rel_pos(self, position_sp=None):
         """
         :param position_sp: degree of position every time the function is called
         :type position_sp: int
         """
-        if self.run_mode != 'position':
-            # maybe something else here, i.e. sp setup
-            self.run_mode = 'position'
-        self.reset()
-        self.set_attrs(kwargs)
-
         if position_sp is not None:
             self.position_sp = position_sp
         self.run = True
+        stop_command = self.stop_command
+        self.stop_command = 'hold' # made for run to position
         self.command = 'run-to-rel-pos'
+        self.stop_command = stop_command
 
     def run_time_limited(self, time_sp, speed_sp, **kwargs):
         self.run_mode = 'time'
         self.set_attrs(kwargs)
-        if self.regulation_mode:
-            self.pulses_per_second_sp = speed_sp
+        if self.speed_regulation == 'on':
+            self.speed_sp = speed_sp
         else:
             self.duty_cycle_sp = speed_sp
         self.time_sp = time_sp
@@ -403,12 +401,27 @@ class Motor(Ev3Dev):
         self.command = 'run-timed'
 
     def run_position_limited(self, position_sp, speed_sp, **kwargs):
+        self.run_mode = 'position'
         self.set_attrs(kwargs)
-        if self.regulation_mode:
-            self.pulses_per_second_sp = speed_sp
+        # duty_cycle_sp doesn't work well with position, force set to speed_regulation + speed_sp
+        self.speed_regulation = 'on'
+        if self.speed_regulation == 'on':
+            self.speed_sp = speed_sp
+        else:
+            self.duty_cycle_sp = speed_sp
+        self.run_to_rel_pos(position_sp)
+
+    def run_to_position(self, position_sp, speed_sp, **kwargs):
+        self.run_mode = 'position'
+        self.set_attrs(kwargs)
+        # duty_cycle_sp doesn't work well with position, force set to speed_regulation + speed_sp
+        self.speed_regulation = 'on'
+        if self.speed_regulation == 'on':
+            self.speed_sp = speed_sp
         else:
             self.duty_cycle_sp = speed_sp
         self.run_to_abs_pos(position_sp)
+
 
 def I2CSMBusProxy(cls):
     try:

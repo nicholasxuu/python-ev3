@@ -263,32 +263,27 @@ class Enum(object):
 
 
 @create_ev3_property(
+    command={'read_only': False, 'property_type': Ev3StringType},
+    commands={'read_only': True, 'property_type': Ev3StringType},
+    count_per_rot={'read_only': True, 'property_type': Ev3IntType},
+    driver_name={'read_only': True, 'property_type': Ev3StringType},
     duty_cycle={'read_only': True, 'property_type': Ev3IntType},
     duty_cycle_sp={'read_only': False, 'property_type': Ev3IntType},
-    estop={'read_only': False, 'property_type': Ev3IntType},
-    polarity_mode={'read_only': False},
-    port_name={'read_only': True},
+    encoder_polarity={'read_only': False, 'property_type': Ev3StringType},
+    polarity={'read_only': False, 'property_type': Ev3StringType},
+    port_name={'read_only': True, 'property_type': Ev3StringType},
     position={'read_only': False, 'property_type': Ev3IntType},
-    position_mode={'read_only': False},
     position_sp={'read_only': False, 'property_type': Ev3IntType},
-    pulses_per_second={'read_only': True, 'property_type': Ev3IntType},
-    pulses_per_second_sp={'read_only': False, 'property_type': Ev3IntType},
-    ramp_down_sp={'read_only': False, 'property_type': Ev3IntType},
-    ramp_up_sp={'read_only': False, 'property_type': Ev3IntType},
-    regulation_mode={'read_only': False, 'property_type': Ev3OnOffType},
-    #reset={ 'read_only': False},
-    run={'read_only': False, 'property_type': Ev3BoolType},
-    run_mode={'read_only': False},
-    speed_regulation_D={'read_only': False, 'property_type': Ev3IntType},
-    speed_regulation_I={'read_only': False, 'property_type': Ev3IntType},
-    speed_regulation_K={'read_only': False, 'property_type': Ev3IntType},
-    speed_regulation_P={'read_only': False, 'property_type': Ev3IntType},
-    state={'read_only': True},
-    stop_mode={'read_only': False},
-    stop_modes={'read_only': False},
+    #ramp_down_sp={'read_only': False, 'property_type': Ev3IntType},
+    #ramp_up_sp={'read_only': False, 'property_type': Ev3IntType},
+    speed={'read_only': True, 'property_type': Ev3IntType},
+    speed_regulation={'read_only': False, 'property_type': Ev3BoolType},
+    speed_sp={'read_only': False, 'property_type': Ev3IntType},
+    state={'read_only': True, 'property_type': Ev3StringType},
+    stop_command={'read_only': False, 'property_type': Ev3StringType},
+    stop_commands={'read_only': True, 'property_type': Ev3StringType},
     time_sp={'read_only': False, 'property_type': Ev3IntType},
-    type={'read_only': False},
-    uevent={'read_only': True}
+    uevent={'read_only': True, 'property_type': Ev3StringType},
 )
 class Motor(Ev3Dev):
     STOP_MODE = Enum(COAST='coast', BRAKE='brake', HOLD='hold')
@@ -324,51 +319,96 @@ class Motor(Ev3Dev):
 
     def stop(self):
         self.run = False
-
-    def start(self):
-        self.run = True
+        self.command = 'stop'
 
     def reset(self):
-        self.write_value('reset', 1)
+        self.run = False
+        self.command = 'reset'
 
-    def run_forever(self, speed_sp, **kwargs):
-        self.run_mode = 'forever'
+    def get_position(self):
+        return self.position
+
+    def set_attrs(self, **kwargs):
         for k in kwargs:
             v = kwargs[k]
             if (v != None):
                 setattr(self, k, v)
-        regulation_mode = self.regulation_mode
-        if (regulation_mode):
+
+    def run_forever(self, speed_sp, **kwargs):
+        """
+        :param speed_sp: rotation speed, -100 to 100, positive or negative to decide direction
+        :type speed_sp: int
+        :param kwargs: all other values
+        """
+        self.reset()
+
+        self.run_mode = 'forever'
+        self.set_attrs(kwargs)
+        if self.regulation_mode:
             self.pulses_per_second_sp = speed_sp
         else:
             self.duty_cycle_sp = speed_sp
-        self.start()
+        self.run = True
+        self.command = 'run-forever'
 
-    def run_time_limited(self, time_sp, speed_sp,  **kwargs):
+    def run_direct(self, speed_sp, **kwargs):
+        """
+        Continue running at new speed
+        """
+        if self.run_mode != 'forever':
+            self.run_mode = 'forever'
+        self.set_attrs(kwargs)
+        if self.regulation_mode:
+            self.pulses_per_second_sp = speed_sp
+        else:
+            self.duty_cycle_sp = speed_sp
+        self.run = True
+        self.command = 'run-forever'
+        pass
+
+    def run_to_abs_pos(self, position_sp, **kwargs):
+        self.reset()
+        self.run_mode = 'position'
+
+        self.set_attrs(kwargs)
+        self.position_sp = position_sp
+        self.run = True
+        self.command = 'run-to-abs-pos'
+
+    def run_to_rel_pos(self, position_sp=None, **kwargs):
+        """
+        :param position_sp: degree of position every time the function is called
+        :type position_sp: int
+        """
+        if self.run_mode != 'position':
+            # maybe something else here, i.e. sp setup
+            self.run_mode = 'position'
+        self.reset()
+        self.set_attrs(kwargs)
+
+        if position_sp is not None:
+            self.position_sp = position_sp
+        self.run = True
+        self.command = 'run-to-rel-pos'
+
+    def run_time_limited(self, time_sp, speed_sp, **kwargs):
         self.run_mode = 'time'
-        for k in kwargs:
-            v = kwargs[k]
-            if (v != None):
-                setattr(self, k, v)
-        regulation_mode = self.regulation_mode
-        if (regulation_mode):
+        self.set_attrs(kwargs)
+        if self.regulation_mode:
             self.pulses_per_second_sp = speed_sp
         else:
             self.duty_cycle_sp = speed_sp
         self.time_sp = time_sp
-        self.start()
+        self.run = True
+        self.command = 'run-timed'
 
-    def run_position_limited(self, position_sp, speed_sp,  **kwargs):
-        self.run_mode = 'position'
-        kwargs['regulation_mode'] = True
-        for k in kwargs:
-            v = kwargs[k]
-            if (v != None):
-                setattr(self, k, v)
-        self.pulses_per_second_sp = speed_sp
-        self.position_sp = position_sp
-        self.start()
-
+    def run_position_limited(self, position_sp, speed_sp, **kwargs):
+        self.set_attrs(kwargs)
+        if self.regulation_mode:
+            self.pulses_per_second_sp = speed_sp
+        else:
+            self.duty_cycle_sp = speed_sp
+        self.run_to_abs_pos(position_sp)
 
 def I2CSMBusProxy(cls):
     try:
